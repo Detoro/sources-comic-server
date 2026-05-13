@@ -2,11 +2,9 @@ package com.toro
 
 import com.toro.database.AuthorSubscriptions
 import io.ktor.server.application.*
-import io.ktor.http.HttpStatusCode.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.request.receive
-import io.ktor.server.resources.*
 import io.ktor.server.auth.jwt.*
 import com.toro.models.Comic
 import com.toro.models.Page
@@ -28,9 +26,7 @@ import com.toro.database.Friends
 import com.toro.models.CommentRequest
 import com.toro.models.ServerResponse
 import com.toro.models.Comment
-import com.toro.models.Bookmark
 import com.toro.models.Post
-import com.toro.models.mockComicDatabase
 import com.toro.models.AuthRequest
 import com.toro.models.AuthResponse
 import com.toro.models.AuthorRequest
@@ -38,7 +34,6 @@ import com.toro.models.ChatStatus
 import com.toro.models.Conversation
 import com.toro.models.UserProfile
 import com.toro.plugins.JwtConfig
-import com.zaxxer.hikari.util.ClockSource.currentTime
 import org.mindrot.jbcrypt.BCrypt.*
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.PartData
@@ -53,183 +48,177 @@ import java.util.UUID
 
 fun Application.configureRouting() {
     routing {
+        authenticate("auth-jwt") {
+            route("api/comics") {
+                get("{comicId}/chapters") {
+                    val comicIdParam = call.parameters["comicId"] ?: return@get call.respondText("Missing ID", status = HttpStatusCode.BadRequest)
 
-        post("api/hello") {
-            val receivedComic = call.receive<Comic>()
-
-            call.respond(ServerResponse("Server: ${receivedComic.title}"))
-        }
-
-        route("api/comics") {
-
-            get {
-                call.respond(mockComicDatabase)
-            }
-
-            get("{id?}") {
-                val id = call.parameters["id"] ?: return@get call.respondText("Missing ID")
-
-                val comic = mockComicDatabase.find { it.id == id }
-
-                if (comic != null) {
-                    call.respond(comic)
-                } else {
-                    call.respondText("Comic not found")
-                }
-            }
-
-            get("{id?}/chapters") {
-                val id = call.parameters["id"] ?: return@get call.respondText("Missing ID")
-
-                val comic = mockComicDatabase.find { it.id == id }
-
-                if (comic != null) {
-                    call.respond(comic)
-                } else {
-                    call.respondText("Comic not found")
-                }
-            }
-
-            get("chapters/{chapterId?}/pages") {
-                val chapterIdParam = call.parameters["chapterId"] ?: return@get call.respondText(
-                    "Missing Chapter ID",
-                    status = HttpStatusCode.BadRequest
-                )
-
-                val chapterPages = DatabaseFactory.dbQuery {
-                    Pages.select { Pages.chapterId eq chapterIdParam }
-                        .orderBy(Pages.pageNumber to SortOrder.ASC)
-                        .map { row ->
-                            Page(
-                                id = row[Pages.id],
-                                chapterId = row[Pages.chapterId],
-                                pageNumber = row[Pages.pageNumber],
-                                imageUrl = row[Pages.imageUrl]
+                    val comic = DatabaseFactory.dbQuery {
+                        Comics.select {
+                            (Comics.id eq comicIdParam)
+                        }.map { row ->
+                            Comic(
+                                id = row[Comics.id],
+                                title = row[Comics.title],
+                                author = row[Comics.author],
+                                description = row[Comics.description],
+                                coverImageUrl = row[Comics.coverImageUrl],
+                                isLocalSideload = row[Comics.isLocalSideload],
+                                localFilePath = row[Comics.localFilePath],
+                                scrollDirection = row[Comics.scrollDirection]
                             )
                         }
-                }
+                    }
 
-                call.respond(chapterPages)
-            }
-
-            get("catalog") {
-                val comicsList = DatabaseFactory.dbQuery {
-                    Comics.selectAll().map { row ->
-                        Comic(
-                            id = row[Comics.id],
-                            title = row[Comics.title],
-                            author = row[Comics.author],
-                            description = row[Comics.description],
-                            coverImageUrl = row[Comics.coverImageUrl],
-                            isLocalSideload = row[Comics.isLocalSideload],
-                            localFilePath = row[Comics.localFilePath]
-                        )
+                    if (comic != null) {
+                        call.respond(comic)
+                    } else {
+                        call.respondText("Comic not found")
                     }
                 }
 
-                call.respond(comicsList)
-            }
+                get("chapters/{chapterId}/pages") {
+                    val chapterIdParam = call.parameters["chapterId"] ?: return@get call.respondText(
+                        "Missing Chapter ID",
+                        status = HttpStatusCode.BadRequest
+                    )
 
-            get("search") {
-                val query = call.request.queryParameters["query"]?.lowercase() ?: ""
-
-                val searchResults = DatabaseFactory.dbQuery {
-                    Comics.select {
-                        (Comics.title.lowerCase() like "%$query%") or
-                                (Comics.author.lowerCase() like "%$query%")
-                    }.map { row ->
-                        Comic(
-                            id = row[Comics.id],
-                            title = row[Comics.title],
-                            author = row[Comics.author],
-                            description = row[Comics.description],
-                            coverImageUrl = row[Comics.coverImageUrl],
-                            isLocalSideload = row[Comics.isLocalSideload],
-                            localFilePath = row[Comics.localFilePath]
-                        )
-                    }
-                }
-
-                call.respond(searchResults)
-            }
-            authenticate("auth-jwt") {
-            post("upload") {
-                val uploadDir = File("uploads")
-                if (!uploadDir.exists()) uploadDir.mkdirs()
-
-                var title = ""
-                var author = ""
-                var description = ""
-                var comicFileName = ""
-                var coverFileName = ""
-
-                try {
-                    val multipartData = call.receiveMultipart()
-
-                    multipartData.forEachPart { part ->
-                        when (part) {
-                            is PartData.FormItem -> {
-                                when (part.name) {
-                                    "title" -> title = part.value
-                                    "author" -> author = part.value
-                                    "description" -> description = part.value
-                                }
+                    val chapterPages = DatabaseFactory.dbQuery {
+                        Pages.select { Pages.chapterId eq chapterIdParam }
+                            .orderBy(Pages.pageNumber to SortOrder.ASC)
+                            .map { row ->
+                                Page(
+                                    id = row[Pages.id],
+                                    chapterId = row[Pages.chapterId],
+                                    pageNumber = row[Pages.pageNumber],
+                                    imageUrl = row[Pages.imageUrl]
+                                )
                             }
+                    }
 
-                            is PartData.FileItem -> {
-                                val originalName = part.originalFileName ?: "unknown_file"
-                                val uniqueName = "${UUID.randomUUID()}_$originalName"
-                                val file = File(uploadDir, uniqueName)
+                    call.respond(chapterPages)
+                }
 
-                                part.streamProvider().use { input ->
-                                    file.outputStream().buffered().use { output ->
-                                        input.copyTo(output)
+                get("catalog") {
+                    val principal = call.principal<JWTPrincipal>()!!
+                    val currentUserId = principal!!.payload.getClaim("userId").asString()
+                    val comicsList = DatabaseFactory.dbQuery {
+                        Comics.selectAll().map { row ->
+                            Comic(
+                                id = row[Comics.id],
+                                title = row[Comics.title],
+                                author = row[Comics.author],
+                                description = row[Comics.description],
+                                coverImageUrl = row[Comics.coverImageUrl],
+                                isLocalSideload = row[Comics.isLocalSideload],
+                                localFilePath = row[Comics.localFilePath],
+                                scrollDirection = row[Comics.scrollDirection]
+                            )
+                        }
+                    }
+
+                    call.respond(comicsList)
+                }
+
+                get("search") {
+                    val query = call.request.queryParameters["query"]?.lowercase() ?: ""
+
+                    val searchResults = DatabaseFactory.dbQuery {
+                        Comics.select {
+                            (Comics.title.lowerCase() like "%$query%") or
+                                    (Comics.author.lowerCase() like "%$query%")
+                        }.map { row ->
+                            Comic(
+                                id = row[Comics.id],
+                                title = row[Comics.title],
+                                author = row[Comics.author],
+                                description = row[Comics.description],
+                                coverImageUrl = row[Comics.coverImageUrl],
+                                isLocalSideload = row[Comics.isLocalSideload],
+                                localFilePath = row[Comics.localFilePath]
+                            )
+                        }
+                    }
+
+                    call.respond(searchResults)
+                }
+                post("upload") {
+                    val uploadDir = File("uploads")
+                    if (!uploadDir.exists()) uploadDir.mkdirs()
+
+                    var title = ""
+                    var author = ""
+                    var description = ""
+                    var comicFileName = ""
+                    var coverFileName = ""
+
+                    try {
+                        val multipartData = call.receiveMultipart()
+
+                        multipartData.forEachPart { part ->
+                            when (part) {
+                                is PartData.FormItem -> {
+                                    when (part.name) {
+                                        "title" -> title = part.value
+                                        "author" -> author = part.value
+                                        "description" -> description = part.value
                                     }
                                 }
 
-                                if (part.name == "file") comicFileName = uniqueName
-                                if (part.name == "cover") coverFileName = uniqueName
+                                is PartData.FileItem -> {
+                                    val originalName = part.originalFileName ?: "unknown_file"
+                                    val uniqueName = "${UUID.randomUUID()}_$originalName"
+                                    val file = File(uploadDir, uniqueName)
+
+                                    part.streamProvider().use { input ->
+                                        file.outputStream().buffered().use { output ->
+                                            input.copyTo(output)
+                                        }
+                                    }
+
+                                    if (part.name == "file") comicFileName = uniqueName
+                                    if (part.name == "cover") coverFileName = uniqueName
+                                }
+
+                                else -> {}
                             }
-
-                            else -> {}
+                            part.dispose()
                         }
-                        part.dispose()
-                    }
 
-                    val newComic = Comic(
-                        id = UUID.randomUUID().toString(),
-                        title = title,
-                        author = author,
-                        description = description,
-                        coverImageUrl = "http://10.0.2.2:8080/uploads/$coverFileName",
-                        isLocalSideload = false,
-                        localFilePath = ""
-                    )
-
-                    DatabaseFactory.dbQuery {
-                        Comics.insert { row ->
-                            row[Comics.id] = newComic.id
-                            row[Comics.title] = newComic.title
-                            row[Comics.author] = newComic.author
-                            row[Comics.description] = newComic.description
-                            row[Comics.coverImageUrl] = newComic.coverImageUrl
-                            row[Comics.isLocalSideload] = newComic.isLocalSideload
-                            row[Comics.localFilePath] = newComic.localFilePath
-                        }
-                    }
-
-                    call.respond(
-                        HttpStatusCode.Created, mapOf(
-                            "message" to "Upload successful!",
-                            "comicId" to newComic.id
+                        val newComic = Comic(
+                            id = UUID.randomUUID().toString(),
+                            title = title,
+                            author = author,
+                            description = description,
+                            coverImageUrl = "http://10.0.2.2:8080/uploads/$coverFileName",
+                            isLocalSideload = false,
+                            localFilePath = ""
                         )
-                    )
 
-                } catch (e: Exception) {
-                    call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Upload failed: ${e.message}"))
+                        DatabaseFactory.dbQuery {
+                            Comics.insert { row ->
+                                row[Comics.id] = newComic.id
+                                row[Comics.title] = newComic.title
+                                row[Comics.author] = newComic.author
+                                row[Comics.description] = newComic.description
+                                row[Comics.coverImageUrl] = newComic.coverImageUrl
+                                row[Comics.isLocalSideload] = newComic.isLocalSideload
+                                row[Comics.localFilePath] = newComic.localFilePath
+                            }
+                        }
+
+                        call.respond(
+                            HttpStatusCode.Created, mapOf(
+                                "message" to "Upload successful!",
+                                "comicId" to newComic.id
+                            )
+                        )
+
+                    } catch (e: Exception) {
+                        call.respond(HttpStatusCode.InternalServerError, mapOf("error" to "Upload failed: ${e.message}"))
+                    }
                 }
             }
-        }
         }
 
         authenticate("auth-jwt") {
@@ -572,24 +561,24 @@ fun Application.configureRouting() {
                         )
                         val currentTime = System.currentTimeMillis()
 
-                        val isLiked = DatabaseFactory.dbQuery {
+                        val result = DatabaseFactory.dbQuery {
                             val existing = Likes.select {
                                 (Likes.userId eq currentUserId) and (Likes.postId eq postIdParam)
                             }.singleOrNull()
 
                             if (existing == null) {
                                 Likes.insert {
-                                    it[id] == UUID.randomUUID().toString();
-                                    it[userId] = currentUserId;
-                                    it[postId] = postIdParam;
-                                    it[timestamp] = currentTime;
+                                    it[id] = UUID.randomUUID().toString()
+                                    it[userId] = currentUserId
+                                    it[postId] = postIdParam
+                                    it[timestamp] = currentTime
                                 }
                                 Posts.update({ Posts.id eq postIdParam }) {
                                     with(SqlExpressionBuilder) {
                                         it.update(likesCount, likesCount + 1)
                                     }
                                 }
-                                true
+                                "Post liked"
                             } else {
                                 Likes.deleteWhere {
                                     (Likes.userId eq currentUserId) and (Likes.postId eq postIdParam)
@@ -599,10 +588,10 @@ fun Application.configureRouting() {
                                         it.update(likesCount, likesCount - 1)
                                     }
                                 }
-                                false
+                                "Like removed"
                             }
                         }
-                        call.respond(mapOf("isLiked" to isLiked))
+                        call.respond(ServerResponse(result))
                     }
 
                     post("bookmark") {
@@ -660,7 +649,7 @@ fun Application.configureRouting() {
                         AuthResponse(
                             token = JwtConfig.generateToken(newUserId),
                             userId = newUserId,
-                            username = safeUsername
+                            username = safeUsername,
                         )
                     )
                 } catch (e: Exception) {
@@ -695,35 +684,74 @@ fun Application.configureRouting() {
                 }
             }
         }
-        route("api/users") {
-            get("friends") {
-                val principal = call.principal<JWTPrincipal>()
-                val currentUserId = principal!!.payload.getClaim("userId").asString()
+        authenticate("auth-jwt") {
+            route("api/users") {
+                get("friends") {
+                    val principal = call.principal<JWTPrincipal>()
+                    val currentUserId = principal!!.payload.getClaim("userId").asString()
 
-                val friendsList = DatabaseFactory.dbQuery {
-                    val friendIds = Friends.select {
-                        (Friends.user1Id eq currentUserId) or (Friends.user2Id eq currentUserId)
-                    }.map { row ->
-                        if (row[Friends.user1Id] == currentUserId) {
-                            row[Friends.user2Id]
+                    val friendsList = DatabaseFactory.dbQuery {
+                        val friendIds = Friends.select {
+                            (Friends.user1Id eq currentUserId) or (Friends.user2Id eq currentUserId)
+                        }.map { row ->
+                            if (row[Friends.user1Id] == currentUserId) {
+                                row[Friends.user2Id]
+                            } else {
+                                row[Friends.user1Id]
+                            }
+                        }
+
+                        if (friendIds.isEmpty()) {
+                            emptyList<AuthResponse>()
                         } else {
-                            row[Friends.user1Id]
+                            Users.select { Users.id inList friendIds }.map { row ->
+                                UserProfile(
+                                    id = row[Users.id],
+                                    username = row[Users.username]
+                                )
+                            }
                         }
                     }
 
-                    if (friendIds.isEmpty()) {
-                        emptyList<AuthResponse>()
-                    } else {
-                        Users.select { Users.id inList friendIds }.map { row ->
-                            UserProfile(
-                                id = row[Users.id],
-                                username = row[Users.username]
-                            )
-                        }
-                    }
+                    call.respond(friendsList)
                 }
 
-                call.respond(friendsList)
+                post("avatar") {
+                    val principal = call.principal<JWTPrincipal>()
+                    val currentUserId = principal!!.payload.getClaim("userId").asString()
+
+                    val uploadDir = File("uploads/avatars")
+                    if (!uploadDir.exists()) uploadDir.mkdirs()
+
+                    var fileName = ""
+                    val multipartData = call.receiveMultipart()
+
+                    multipartData.forEachPart { part ->
+                        if (part is PartData.FileItem) {
+                            val ext = File(part.originalFileName ?: "").extension.ifEmpty { "jpg" }
+
+                            fileName = "${currentUserId}.$ext"
+                            val file = File(uploadDir, fileName)
+
+                            part.streamProvider().use { input ->
+                                file.outputStream().buffered().use { output ->
+                                    input.copyTo(output)
+                                }
+                            }
+                        }
+                        part.dispose()
+                    }
+
+                    val publicUrl = "http://192.168.1.141:8080/uploads/avatars/$fileName"
+
+                    DatabaseFactory.dbQuery {
+                        Users.update({ Users.id eq currentUserId }) {
+                            it[avatarUrl] = publicUrl
+                        }
+                    }
+
+                    call.respond(ServerResponse(publicUrl))
+                }
             }
         }
     }
