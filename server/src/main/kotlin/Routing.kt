@@ -23,6 +23,7 @@ import com.toro.database.Posts
 import com.toro.database.Likes
 import com.toro.database.Pages
 import com.toro.database.Friends
+import com.toro.database.Tags
 import com.toro.models.CommentRequest
 import com.toro.models.ServerResponse
 import com.toro.models.Comment
@@ -32,6 +33,8 @@ import com.toro.models.AuthResponse
 import com.toro.models.AuthorRequest
 import com.toro.models.ChatStatus
 import com.toro.models.Conversation
+import com.toro.models.PostRequest
+import com.toro.models.Tag
 import com.toro.models.UserProfile
 import com.toro.plugins.JwtConfig
 import org.mindrot.jbcrypt.BCrypt.*
@@ -483,13 +486,22 @@ fun Application.configureRouting() {
                 post {
                     val principal = call.principal<JWTPrincipal>()
                     val currentUserId = principal!!.payload.getClaim("userId").asString()
-                    val receivedMessage = call.receive<CommentRequest>()
+                    val receivedMessage = call.receive<PostRequest>()
+                    val postid = UUID.randomUUID().toString()
                     val resultMessage = DatabaseFactory.dbQuery {
                         Posts.insert {
-                            it[id] = UUID.randomUUID().toString()
+                            it[id] = postid
                             it[authorId] = currentUserId
                             it[content] = receivedMessage.content
                             it[timestamp] = System.currentTimeMillis()
+                        }
+
+                        receivedMessage.tags.map { tag ->
+                            Tags.insert {
+                                it[id] = UUID.randomUUID().toString()
+                                it[postId] = postid
+                                it[content] = tag
+                            }
                         }
                         "Success"
                     }
@@ -621,6 +633,23 @@ fun Application.configureRouting() {
                         }
 
                         call.respond(HttpStatusCode.OK, ServerResponse(result))
+                    }
+
+                    get("tags") {
+                        val postIdParam = call.parameters["postId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing Post id")
+
+                        val tagsList = DatabaseFactory.dbQuery {
+                            Tags.select { Tags.postId eq postIdParam }
+                                .map { row ->
+                                    Tag(
+                                        id = row[Tags.id],
+                                        postId = row[Tags.postId],
+                                        content = row[Tags.content]
+                                    )
+                                }
+                        }
+
+                        call.respond(HttpStatusCode.OK, tagsList)
                     }
                 }
             }

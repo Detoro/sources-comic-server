@@ -15,6 +15,7 @@ import com.toro.database.Conversations
 import com.toro.database.Pages
 import com.toro.database.Likes
 import com.toro.database.Friends
+import com.toro.database.Tags
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +64,8 @@ object DatabaseFactory {
                     AuthorSubscriptions,
                     Conversations,
                     Bookmarks,
-                    Likes
+                    Likes,
+                    Tags
                 )
             }
 
